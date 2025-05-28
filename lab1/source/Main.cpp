@@ -78,6 +78,8 @@ private:
 
 class Asteroid {
 public:
+	enum class Type { TRIANGLE, SQUARE, PENTAGON, HEXAGON };
+    virtual Type GetType() const = 0;
 	Asteroid(int screenW, int screenH) {
 		init(screenW, screenH);
 	}
@@ -97,6 +99,10 @@ public:
 		return transform.position;
 	}
 
+	void SetPosition(const Vector2& pos) { 
+		transform.position = pos; 
+	}
+
 	float constexpr GetRadius() const {
 		return 16.f * (float)render.size;
 	}
@@ -107,6 +113,10 @@ public:
 
 	int GetSize() const {
 		return static_cast<int>(render.size);
+	}
+
+	void SetSize(Renderable::Size size) { 
+		render.size = size; 
 	}
 
 protected:
@@ -135,8 +145,8 @@ protected:
 		float ang = Utils::RandomFloat(0, 2 * PI);
 		float rad = Utils::RandomFloat(0, maxOff);
 		Vector2 center = {
-										 screenW * 0.5f + cosf(ang) * rad,
-										 screenH * 0.5f + sinf(ang) * rad
+			screenW * 0.5f + cosf(ang) * rad,
+			screenH * 0.5f + sinf(ang) * rad
 		};
 
 		Vector2 dir = Vector2Normalize(Vector2Subtract(center, transform.position));
@@ -164,6 +174,7 @@ public:
 	void Draw() const override {
 		Renderer::Instance().DrawPoly(transform.position, 3, GetRadius(), transform.rotation);
 	}
+	Type GetType() const override { return Type::TRIANGLE; }
 };
 class SquareAsteroid : public Asteroid {
 public:
@@ -171,6 +182,7 @@ public:
 	void Draw() const override {
 		Renderer::Instance().DrawPoly(transform.position, 4, GetRadius(), transform.rotation);
 	}
+	Type GetType() const override { return Type::SQUARE; }
 };
 class PentagonAsteroid : public Asteroid {
 public:
@@ -178,10 +190,19 @@ public:
 	void Draw() const override {
 		Renderer::Instance().DrawPoly(transform.position, 5, GetRadius(), transform.rotation);
 	}
+	Type GetType() const override { return Type::PENTAGON; }
+};
+class HexagonAsteroid : public Asteroid {
+public:
+	HexagonAsteroid(int w, int h) : Asteroid(w, h){ baseDamage = 10; }
+	void Draw() const override {
+		Renderer::Instance().DrawPoly(transform.position, 6, GetRadius(), transform.rotation);
+	}
+	Type GetType() const override { return Type::HEXAGON; }
 };
 
 // Shape selector
-enum class AsteroidShape { TRIANGLE = 3, SQUARE = 4, PENTAGON = 5, RANDOM = 0 };
+enum class AsteroidShape { TRIANGLE = 3, SQUARE = 4, PENTAGON = 5, HEXAGON = 6, RANDOM = 0 };
 
 // Factory
 static inline std::unique_ptr<Asteroid> MakeAsteroid(int w, int h, AsteroidShape shape) {
@@ -192,6 +213,8 @@ static inline std::unique_ptr<Asteroid> MakeAsteroid(int w, int h, AsteroidShape
 		return std::make_unique<SquareAsteroid>(w, h);
 	case AsteroidShape::PENTAGON:
 		return std::make_unique<PentagonAsteroid>(w, h);
+	case AsteroidShape::HEXAGON:
+		return std::make_unique<HexagonAsteroid>(w, h);
 	default: {
 		return MakeAsteroid(w, h, static_cast<AsteroidShape>(3 + GetRandomValue(0, 2)));
 	}
@@ -199,7 +222,7 @@ static inline std::unique_ptr<Asteroid> MakeAsteroid(int w, int h, AsteroidShape
 }
 
 // --- PROJECTILE HIERARCHY ---
-enum class WeaponType { LASER, BULLET, PLASMA, COUNT };
+enum class WeaponType { LASER, BULLET, PLASMA, ULTIMATE, COUNT };
 class Projectile {
 public:
 	Projectile(Vector2 pos, Vector2 vel, int dmg, WeaponType wt)
@@ -229,9 +252,13 @@ public:
 			static constexpr float LASER_LENGTH = 30.f;
 			Rectangle lr = { transform.position.x - 2.f, transform.position.y - LASER_LENGTH, 4.f, LASER_LENGTH };
 			DrawRectangleRec(lr, RED);
-		} else{
+		} 
+		else if(type == WeaponType::PLASMA) {
 			static constexpr float PLASMA_RADIUS = 10.f;
 			DrawCircleV(transform.position, PLASMA_RADIUS, BLUE);
+		}
+		else {
+			DrawCircleV(transform.position, 7.f, YELLOW);
 		}
 	}
 	Vector2 GetPosition() const {
@@ -245,6 +272,8 @@ public:
 		case WeaponType::BULLET:
 			return 5.f;
 		case WeaponType::PLASMA:
+			return 10.f;
+		default:
 			return 10.f;
 		}
 	}
@@ -292,9 +321,11 @@ public:
 		fireRateLaser = 18.f; // shots/sec
 		fireRateBullet = 22.f;
 		fireRatePlasma = 5.f;
+		fireRateUltimate = 0.5f;
 		spacingLaser = 40.f; // px between lasers
 		spacingBullet = 20.f;
 		spacingPlasma = 10.f;
+		spacingUltimate = 0.f;
 	}
 	virtual ~Ship() = default;
 	virtual void Update(float dt) = 0;
@@ -327,8 +358,10 @@ public:
 		else if (wt == WeaponType::BULLET) {
 			return fireRateBullet;
 		}
-		else {
+		else if (wt == WeaponType::PLASMA) {
 			return fireRatePlasma;
+		} else {
+			return fireRateUltimate;
 		}
 	}
 
@@ -339,8 +372,10 @@ public:
 		else if (wt == WeaponType::BULLET) {
 			return spacingBullet;
 		}
-		else {
+		else if (wt == WeaponType::PLASMA) {
 			return spacingPlasma;
+		} else {
+			return spacingUltimate;
 		}
 	}
 
@@ -352,18 +387,20 @@ protected:
 	float      fireRateLaser;
 	float      fireRateBullet;
 	float      fireRatePlasma;
+	float	   fireRateUltimate;
 	float      spacingLaser;
 	float      spacingBullet;
 	float      spacingPlasma;
+	float      spacingUltimate;
 };
 
 class PlayerShip :public Ship {
 public:
 	PlayerShip(int w, int h) : Ship(w, h) {
-		texture = LoadTexture("spaceship1.png");
+		texture = LoadTexture("spaceship2.png");
 		GenTextureMipmaps(&texture);                                                        // Generate GPU mipmaps for a texture
 		SetTextureFilter(texture, 2);
-		scale = 0.25f;
+		scale = 0.15f;
 	}
 	~PlayerShip() {
 		UnloadTexture(texture);
@@ -444,6 +481,9 @@ public:
 				currentShape = AsteroidShape::PENTAGON;
 			}
 			if (IsKeyPressed(KEY_FOUR)) {
+				currentShape = AsteroidShape::HEXAGON;
+			}
+			if (IsKeyPressed(KEY_ZERO)) {
 				currentShape = AsteroidShape::RANDOM;
 			}
 
@@ -462,8 +502,22 @@ public:
 					while (shotTimer >= interval) {
 						Vector2 p = player->GetPosition();
 						p.y -= player->GetRadius();
-						projectiles.push_back(MakeProjectile(currentWeapon, p, projSpeed));
-						shotTimer -= interval;
+						if (currentWeapon == WeaponType::ULTIMATE) {
+							const int numProjectiles = 100;
+							float angleStep = 2 * PI / numProjectiles;
+							float speed = 400.0f;
+							for (int i = 0; i < numProjectiles; ++i) {
+								float angle = i * angleStep;
+								Vector2 dir = { cosf(angle), sinf(angle) };
+								Vector2 pos = Vector2Add(p, Vector2Scale(dir, player->GetRadius() + 10.f));
+								Vector2 vel = Vector2Scale(dir, speed);
+								projectiles.push_back(Projectile(pos, vel, 50, WeaponType::ULTIMATE));
+							}
+							shotTimer -= interval;
+						} else {
+							projectiles.push_back(MakeProjectile(currentWeapon, p, projSpeed));
+							shotTimer -= interval;
+						}
 					}
 				}
 				else {
@@ -498,6 +552,34 @@ public:
 				for (auto ait = asteroids.begin(); ait != asteroids.end(); ++ait) {
 					float dist = Vector2Distance((*pit).GetPosition(), (*ait)->GetPosition());
 					if (dist < (*pit).GetRadius() + (*ait)->GetRadius()) {
+						if ((*ait)->GetType() == Asteroid::Type::HEXAGON) {
+							switch((*ait)->GetSize()){
+								case Renderable::SMALL:
+									for (int i = 0; i < 5; ++i) {
+										auto newAst = MakeAsteroid(Renderer::Instance().Width(), Renderer::Instance().Height(), AsteroidShape::PENTAGON);
+										newAst->SetPosition((*ait)->GetPosition()); 
+										newAst->SetSize(Renderable::SMALL);
+										asteroids.push_back(std::move(newAst));
+									}
+									break;
+								case Renderable::MEDIUM:
+									for (int i = 0; i < 4; ++i) {
+										auto newAst = MakeAsteroid(Renderer::Instance().Width(), Renderer::Instance().Height(), AsteroidShape::HEXAGON);
+										newAst->SetPosition((*ait)->GetPosition()); 
+										newAst->SetSize(Renderable::SMALL);
+										asteroids.push_back(std::move(newAst));
+									}
+									break;
+								case Renderable::LARGE:
+									for (int i = 0; i < 3; ++i) {
+										auto newAst = MakeAsteroid(Renderer::Instance().Width(), Renderer::Instance().Height(), AsteroidShape::HEXAGON);
+										newAst->SetPosition((*ait)->GetPosition()); 
+										newAst->SetSize(Renderable::MEDIUM);
+										asteroids.push_back(std::move(newAst));
+									}
+									break;
+							}
+						}
 						ait = asteroids.erase(ait);
 						pit = projectiles.erase(pit);
 						removed = true;
@@ -544,9 +626,13 @@ public:
 				else if(currentWeapon == WeaponType::BULLET) {
 					weaponName = "Bullet";
 				}
-				else {
+				else if(currentWeapon == WeaponType::PLASMA) {
 					weaponName = "Plasma";
 				}
+				else {
+					weaponName = "Ultimate";
+				}
+
 				DrawText(TextFormat("Weapon: %s", weaponName),
 					10, 40, 20, BLUE);
 
